@@ -43,10 +43,11 @@ clear containers running on the same machine
         #Create the ovsdpdk based container networks using the custom ovsdpdk docker driver
         sudo docker network create -d=ovsdpdk --ipam-driver=ovsdpdk --subnet=192.168.1.0/24 --gateway=192.168.1.1  --opt "bridge"="ovsbr" ovsdpdk_net
 
-        #Create a docker containers one on each network using the clear container runtime
+        #Create a docker containers attached to this network 
         #The IP address of each container is specified
         sudo docker run -d --net=ovsdpdk_net --ip=192.168.1.2 --mac-address=CA:FE:CA:FE:01:02 --name "ccovs1" debian bash -c "ip a; ip route; sleep 30000"
 
+        #Launch a second container on the same network
         #Test network connectivity between the two containers over the ovs dpdk based network
         sudo docker run --net=ovsdpdk_net --ip=192.168.1.3 --mac-address=CA:FE:CA:FE:01:03 --name "ccovs2" debian bash -c "ip a; ip route; ping 192.168.1.2"
 

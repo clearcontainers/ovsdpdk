@@ -47,7 +47,7 @@ type nwVal struct {
 	Gateway net.IPNet
 }
 
-var counter int
+var intfCounter int
 
 var epMap struct {
 	sync.Mutex
@@ -152,8 +152,18 @@ func handlerCreateNetwork(w http.ResponseWriter, r *http.Request) {
 	if err := dbAdd("nwMap", req.NetworkID, nwMap.m[req.NetworkID]); err != nil {
 		glog.Errorf("Unable to update db %v", err)
 	}
-	//TODO: Create the ovs bridge for this network
+
+	//Create the ovs bridge for this network
 	//ovs-vsctl add-br br0 -- set bridge $bridge datapath_type=netdev
+	cmd := "ovs-vsctl"
+	args := []string{"add-br", bridge, "set", "bridge", bridge, "datapath", "type=netdev"}
+	_, err = exec.Command(cmd, args...).Output()
+	if err != nil {
+		glog.Infof("ERROR: [%v] [%v] [%v] ", cmd, args, err)
+		resp.Err = fmt.Sprintf("Error: [%v] [%v] [%v]", cmd, args, err)
+		sendResponse(resp, w)
+		return
+	}
 
 	sendResponse(resp, w)
 }
@@ -186,8 +196,16 @@ func handlerDeleteNetwork(w http.ResponseWriter, r *http.Request) {
 		glog.Errorf("Unable to update db %v %v", err, bridge)
 	}
 
-	//TODO: Delete the ovs bridge
-	//ovs-vsctl del-br $bridge
+	//Delete the bridge created for this network
+	cmd := "ovs-vsctl"
+	args := []string{"del-br", bridge}
+	_, err = exec.Command(cmd, args...).Output()
+	if err != nil {
+		glog.Infof("ERROR: [%v] [%v] [%v] ", cmd, args, err)
+		resp.Err = fmt.Sprintf("Error: [%v] [%v] [%v]", cmd, args, err)
+		sendResponse(resp, w)
+		return
+	}
 
 	sendResponse(resp, w)
 	return
@@ -262,8 +280,8 @@ func handlerCreateEndpoint(w http.ResponseWriter, r *http.Request) {
 	defer epMap.Unlock()
 
 	//Generate a unique ovs port name
-	counter++
-	ovsDpdkPort := fmt.Sprintf("ovd_%d", counter)
+	ovsDpdkPort := fmt.Sprintf("ovd_%d", intfCounter)
+	intfCounter++
 
 	cmd := "ovs-vsctl"
 	args := []string{"add-port", bridge, ovsDpdkPort, "--", "set", "Interface", ovsDpdkPort, "type=dpdkvhostuser"}
@@ -285,7 +303,7 @@ func handlerCreateEndpoint(w http.ResponseWriter, r *http.Request) {
 	if err := dbAdd("epMap", req.EndpointID, epMap.m[req.EndpointID]); err != nil {
 		glog.Errorf("Unable to update db %v %v", err, ip)
 	}
-	if err := dbAdd("global", "counter", counter); err != nil {
+	if err := dbAdd("global", "counter", intfCounter); err != nil {
 		glog.Errorf("Unable to update db %v", err)
 	}
 
@@ -329,14 +347,42 @@ func handlerDeleteEndpoint(w http.ResponseWriter, r *http.Request) {
 	}
 
 	epMap.Lock()
+	nwMap.Lock()
+
 	m := epMap.m[req.EndpointID]
+	ovsDpdkPort := m.ovsPort
+	bridge := nwMap.m[req.NetworkID].Bridge
+
 	delete(epMap.m, req.EndpointID)
 	if err := dbDelete("epMap", req.EndpointID); err != nil {
 		glog.Errorf("Unable to update db %v %v", err, m)
 	}
+	nwMap.Unlock()
 	epMap.Unlock()
 
-	//TODO: Delete the ovs port and the dummy interface
+	//Delete the ovs port and the dummy interface
+	cmd := "ovs-vsctl"
+	args := []string{"del-port", bridge, ovsDpdkPort}
+	_, err = exec.Command(cmd, args...).Output()
+	if err != nil {
+		glog.Infof("ERROR: [%v] [%v] [%v] ", cmd, args, err)
+		resp.Err = fmt.Sprintf("Error EndPointCreate: [%v] [%v] [%v]",
+			cmd, args, err)
+		sendResponse(resp, w)
+		return
+	}
+	glog.Infof("Deleted ovs port %v %v %v", bridge, ovsDpdkPort, err)
+
+	cmd = "ip"
+	args = []string{"link", "del", ovsDpdkPort}
+	if err := exec.Command(cmd, args...).Run(); err != nil {
+		resp.Err = fmt.Sprintf("Error EndPointCreate: [%v] [%v] [%v]",
+			cmd, args, err)
+		sendResponse(resp, w)
+		return
+	}
+
+	glog.Infof("Deleted dummy port %v %v ", cmd, args)
 
 	sendResponse(resp, w)
 }
@@ -695,12 +741,12 @@ func initDb() error {
 	c, err := dbGet("global", "counter")
 	if err != nil {
 		glog.Errorf("dbGet failed %v", err)
-		counter = 100
+		intfCounter = 100
 	} else {
 		var ok bool
-		counter, ok = c.(int)
+		intfCounter, ok = c.(int)
 		if !ok {
-			counter = 100
+			intfCounter = 100
 		}
 	}
 
