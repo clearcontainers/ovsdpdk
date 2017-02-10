@@ -156,7 +156,7 @@ func handlerCreateNetwork(w http.ResponseWriter, r *http.Request) {
 	//Create the ovs bridge for this network
 	//ovs-vsctl add-br br0 -- set bridge $bridge datapath_type=netdev
 	cmd := "ovs-vsctl"
-	args := []string{"add-br", bridge, "set", "bridge", bridge, "datapath", "type=netdev"}
+	args := []string{"add-br", bridge, "--", "set", "bridge", bridge, "datapath_type=netdev"}
 	_, err = exec.Command(cmd, args...).Output()
 	if err != nil {
 		glog.Infof("ERROR: [%v] [%v] [%v] ", cmd, args, err)
@@ -371,7 +371,7 @@ func handlerDeleteEndpoint(w http.ResponseWriter, r *http.Request) {
 		sendResponse(resp, w)
 		return
 	}
-	glog.Infof("Deleted ovs port %v %v %v", bridge, ovsDpdkPort, err)
+	glog.Infof("Deleted ovs port %v %v %v", cmd, args, err)
 
 	cmd = "ip"
 	args = []string{"link", "del", ovsDpdkPort}
