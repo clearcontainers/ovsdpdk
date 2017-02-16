@@ -164,6 +164,7 @@ func handlerCreateNetwork(w http.ResponseWriter, r *http.Request) {
 		sendResponse(resp, w)
 		return
 	}
+	glog.Infof("create bridge for this network: [%v] [%v] [%v] ", cmd, args, err)
 
 	sendResponse(resp, w)
 }
@@ -280,8 +281,7 @@ func handlerCreateEndpoint(w http.ResponseWriter, r *http.Request) {
 	defer epMap.Unlock()
 
 	//Generate a unique ovs port name
-	ovsDpdkPort := fmt.Sprintf("ovd_%d", intfCounter)
-	intfCounter++
+	ovsDpdkPort := fmt.Sprintf("ovd_%s", ip)
 
 	cmd := "ovs-vsctl"
 	args := []string{"add-port", bridge, ovsDpdkPort, "--", "set", "Interface", ovsDpdkPort, "type=dpdkvhostuser"}
@@ -303,9 +303,6 @@ func handlerCreateEndpoint(w http.ResponseWriter, r *http.Request) {
 	if err := dbAdd("epMap", req.EndpointID, epMap.m[req.EndpointID]); err != nil {
 		glog.Errorf("Unable to update db %v %v", err, ip)
 	}
-	if err := dbAdd("global", "counter", intfCounter); err != nil {
-		glog.Errorf("Unable to update db %v", err)
-	}
 
 	/* Setup the dummy interface corresponding to the dpdk port
 	 * This is done so that docker CNM will program the IP Address
@@ -313,7 +310,7 @@ func handlerCreateEndpoint(w http.ResponseWriter, r *http.Request) {
 	 * This dummy interface will be discovered by clear containers
 	 * which then maps the actual ovs port to the VM
 	 * This is needed today as docker does not pass any information
-	 * passed to it from the network plugin to the runtime
+	 * from the network plugin to the runtime
 	 */
 	cmd = "ip"
 	args = []string{"link", "add", ovsDpdkPort, "type", "dummy"}
