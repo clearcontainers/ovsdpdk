@@ -156,7 +156,7 @@ func handlerCreateNetwork(w http.ResponseWriter, r *http.Request) {
 	//Create the ovs bridge for this network
 	//ovs-vsctl add-br br0 -- set bridge $bridge datapath_type=netdev
 	cmd := "ovs-vsctl"
-	args := []string{"add-br", bridge, "set", "bridge", bridge, "datapath", "type=netdev"}
+	args := []string{"add-br", bridge, "--", "set", "bridge", bridge, "datapath_type=netdev"}
 	_, err = exec.Command(cmd, args...).Output()
 	if err != nil {
 		glog.Infof("ERROR: [%v] [%v] [%v] ", cmd, args, err)
@@ -164,6 +164,7 @@ func handlerCreateNetwork(w http.ResponseWriter, r *http.Request) {
 		sendResponse(resp, w)
 		return
 	}
+	glog.Infof("create bridge for this network: [%v] [%v] [%v] ", cmd, args, err)
 
 	sendResponse(resp, w)
 }
@@ -280,8 +281,7 @@ func handlerCreateEndpoint(w http.ResponseWriter, r *http.Request) {
 	defer epMap.Unlock()
 
 	//Generate a unique ovs port name
-	ovsDpdkPort := fmt.Sprintf("ovd_%d", intfCounter)
-	intfCounter++
+	ovsDpdkPort := fmt.Sprintf("ovd_%s", ip)
 
 	cmd := "ovs-vsctl"
 	args := []string{"add-port", bridge, ovsDpdkPort, "--", "set", "Interface", ovsDpdkPort, "type=dpdkvhostuser"}
@@ -303,9 +303,6 @@ func handlerCreateEndpoint(w http.ResponseWriter, r *http.Request) {
 	if err := dbAdd("epMap", req.EndpointID, epMap.m[req.EndpointID]); err != nil {
 		glog.Errorf("Unable to update db %v %v", err, ip)
 	}
-	if err := dbAdd("global", "counter", intfCounter); err != nil {
-		glog.Errorf("Unable to update db %v", err)
-	}
 
 	/* Setup the dummy interface corresponding to the dpdk port
 	 * This is done so that docker CNM will program the IP Address
@@ -313,7 +310,7 @@ func handlerCreateEndpoint(w http.ResponseWriter, r *http.Request) {
 	 * This dummy interface will be discovered by clear containers
 	 * which then maps the actual ovs port to the VM
 	 * This is needed today as docker does not pass any information
-	 * passed to it from the network plugin to the runtime
+	 * from the network plugin to the runtime
 	 */
 	cmd = "ip"
 	args = []string{"link", "add", ovsDpdkPort, "type", "dummy"}
@@ -371,7 +368,7 @@ func handlerDeleteEndpoint(w http.ResponseWriter, r *http.Request) {
 		sendResponse(resp, w)
 		return
 	}
-	glog.Infof("Deleted ovs port %v %v %v", bridge, ovsDpdkPort, err)
+	glog.Infof("Deleted ovs port %v %v %v", cmd, args, err)
 
 	cmd = "ip"
 	args = []string{"link", "del", ovsDpdkPort}
